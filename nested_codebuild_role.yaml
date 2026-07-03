@@ -1,0 +1,93 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: CodeBuild Service Role for aws-cfn-infra-prod-deploy-pipeline
+
+Parameters:
+
+  ArtifactBucketArn:
+    Type: String
+
+  ArtifactBucketObjectsArn:
+    Type: String
+
+Resources:
+  CodeBuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - codebuild.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: codebuild-cloudformation-pipeline-policy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              # CloudFormation Validation
+              - Effect: Allow
+                Action:
+                  - cloudformation:ValidateTemplate
+                Resource: "*"
+              # CloudFormation Package
+              - Effect: Allow
+                Action:
+                  - cloudformation:GetTemplateSummary
+                Resource: "*"
+               # Package Bucket - ListBucket
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                  - s3:GetBucketLocation
+                Resource:
+                  - arn:aws:s3:::aws-cfn-two-tier-multi-env-artifacts-982723143439-us-west-1-an
+              # Package Bucket - Objects
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource:
+                  - arn:aws:s3:::aws-cfn-two-tier-multi-env-artifacts-982723143439-us-west-1-an/*
+              # CodePipeline Artifact Bucket - ListBucket
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource:
+                  - !Ref ArtifactBucketArn
+              # CodePipeline Artifact Bucket - Objects
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:PutObject
+                Resource:
+                  - !Ref ArtifactBucketObjectsArn
+              # CloudWatch Logs
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource:
+                  - arn:aws:logs:us-west-1:982723143439:log-group:/aws/codebuild/cfn-validate-project
+                  - arn:aws:logs:us-west-1:982723143439:log-group:/aws/codebuild/cfn-validate-project:*
+                  - arn:aws:logs:us-west-1:982723143439:log-group:/aws/codebuild/cfn-package-project
+                  - arn:aws:logs:us-west-1:982723143439:log-group:/aws/codebuild/cfn-package-project:*
+                  - arn:aws:logs:us-west-1:982723143439:log-group:/aws/codebuild/cfn-pr-validation-project
+                  - arn:aws:logs:us-west-1:982723143439:log-group:/aws/codebuild/cfn-pr-validation-project:*
+              # GitHub CodeConnections
+              - Effect: Allow
+                Action:
+                  - codestar-connections:UseConnection
+                  - codestar-connections:GetConnection
+                  - codestar-connections:GetConnectionToken
+                Resource:
+                  - arn:aws:codeconnections:us-west-1:982723143439:connection/2a301bbf-9483-4ada-8bdb-96d96fbc7244
+
+Outputs:
+  CodeBuildRoleArn:
+    Description: CodeBuild Service Role ARN
+    Value: !GetAtt CodeBuildRole.Arn

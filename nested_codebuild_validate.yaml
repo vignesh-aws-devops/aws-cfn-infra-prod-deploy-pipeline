@@ -1,0 +1,43 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: CloudFormation Validation for the aws-cfn-infra-prod-deploy-pipeline
+
+Parameters:
+  CodeBuildRoleArn:
+    Type: String
+
+Resources:
+
+  ValidateProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: cfn-validate-project
+      ServiceRole: !Ref CodeBuildRoleArn
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/standard:7.0
+        Type: LINUX_CONTAINER
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: |
+          version: 0.2
+          phases:
+            build:
+              commands:
+                - echo "Validating CloudFormation Templates"
+                - |
+                  for template in $(find . -name "*.yaml")
+                  do
+                    echo "Validating $template"
+
+                    aws cloudformation validate-template \
+                      --template-body file://$template
+                  done
+
+Outputs:
+  ValidateProjectName:
+    Value: !Ref ValidateProject
+  
+  ValidateProjectArn:
+    Value: !GetAtt ValidateProject.Arn

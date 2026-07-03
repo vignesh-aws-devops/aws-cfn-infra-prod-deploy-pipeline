@@ -1,0 +1,23 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: S3 Bucket for storing CodePipeline Artifacts in aws-cfn-infra-prod-deploy-pipeline
+
+Resources:
+  ArtifactBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      VersioningConfiguration:
+        Status: Enabled
+
+Outputs:
+
+  ArtifactBucketName:
+    Description: Name of the S3 Bucket for CodePipeline Artifacts
+    Value: !Ref ArtifactBucket
+
+  ArtifactBucketArn:
+    Description: ARN of the Artifact Bucket
+    Value: !GetAtt ArtifactBucket.Arn
+
+  ArtifactBucketObjectsArn:
+    Description: ARN of all objects inside the Artifact Bucket
+    Value: !Sub '${ArtifactBucket.Arn}/*'

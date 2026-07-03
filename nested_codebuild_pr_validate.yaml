@@ -1,0 +1,69 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: CloudFormation Pull Request Validation CodeBuild Project
+
+Parameters:
+
+  CodeBuildRoleArn:
+    Type: String
+
+Resources:
+
+  PRValidateProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: cfn-pr-validation-project
+
+      ServiceRole: !Ref CodeBuildRoleArn
+
+      Artifacts:
+        Type: NO_ARTIFACTS
+
+      Environment:
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/standard:7.0
+        Type: LINUX_CONTAINER
+
+      Source:
+        Type: GITHUB
+        Location: https://github.com/vignesh-aws-devops/aws-cfn-two-tier-multi-environment.git
+        ReportBuildStatus: true
+
+        BuildSpec: |
+          version: 0.2
+
+          phases:
+            build:
+              commands:
+                - echo "Validating CloudFormation Templates"
+
+                - |
+                  for template in $(find . -name "*.yaml")
+                  do
+                    echo "Validating $template"
+
+                    aws cloudformation validate-template \
+                      --template-body file://$template
+                  done
+
+                - echo "Validation completed successfully."
+
+      Triggers:
+        Webhook: true
+
+        FilterGroups:
+          -
+            - Type: EVENT
+              Pattern: PULL_REQUEST_CREATED,PULL_REQUEST_UPDATED
+
+            - Type: BASE_REF
+              Pattern: ^refs/heads/main$
+
+Outputs:
+
+  PRValidateProjectName:
+    Description: PR Validation CodeBuild Project Name
+    Value: !Ref PRValidateProject
+
+  PRValidateProjectArn:
+    Description: PR Validation CodeBuild Project ARN
+    Value: !GetAtt PRValidateProject.Arn

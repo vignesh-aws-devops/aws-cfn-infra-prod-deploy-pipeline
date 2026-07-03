@@ -1,0 +1,45 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: CloudFormation Packaging for the aws-cfn-infra-prod-deploy-pipeline
+
+Parameters:
+  CodeBuildRoleArn:
+    Type: String
+    
+Resources:
+  PackageProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: cfn-package-project
+      ServiceRole: !Ref CodeBuildRoleArn
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/standard:7.0
+        Type: LINUX_CONTAINER
+        EnvironmentVariables:
+          - Name: PACKAGE_BUCKET_NAME
+            Value: aws-cfn-two-tier-multi-env-artifacts-982723143439-us-west-1-an
+
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: |
+          version: 0.2
+          phases:
+            build:
+              commands:
+                - echo "Packaging CloudFormation Templates"
+                - aws cloudformation package --template-file root_main.yaml --s3-bucket $PACKAGE_BUCKET_NAME --output-template-file packaged_root_main.yaml
+                - echo "Packaging completed successfully!"
+          artifacts:
+            files:
+              - packaged_root_main.yaml
+              - test-parameters.json
+              - prod-parameters.json
+
+Outputs:
+  PackageProjectName:
+    Value: !Ref PackageProject
+  
+  PackageProjectArn:
+    Value: !GetAtt PackageProject.Arn

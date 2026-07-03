@@ -1,0 +1,246 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: AWS CloudFormation Infrastructure Production Deployment Pipeline
+Resources:
+  ArtifactBucketStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: 
+        https://s3.us-west-1.amazonaws.com/aws-cfn-infra-prod-pipeline-artifacts-982723143439-us-west-1-an/6c8fbd10174ea1712e7cd1a4b9ca494d.template
+  CodePipelineRoleStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+    - CloudFormationExecutionRoleStack
+    Properties:
+      TemplateURL: 
+        https://s3.us-west-1.amazonaws.com/aws-cfn-infra-prod-pipeline-artifacts-982723143439-us-west-1-an/dc9eaa7aab4da7cb30c173cc868b7086.template
+      Parameters:
+        ArtifactBucketArn:
+          Fn::GetAtt:
+          - ArtifactBucketStack
+          - Outputs.ArtifactBucketArn
+        ArtifactBucketObjectsArn:
+          Fn::GetAtt:
+          - ArtifactBucketStack
+          - Outputs.ArtifactBucketObjectsArn
+        ValidateProjectArn:
+          Fn::GetAtt:
+          - ValidateProjectStack
+          - Outputs.ValidateProjectArn
+        PackageProjectArn:
+          Fn::GetAtt:
+          - PackageProjectStack
+          - Outputs.PackageProjectArn
+        CloudFormationExecutionRoleArn:
+          Fn::GetAtt:
+          - CloudFormationExecutionRoleStack
+          - Outputs.CloudFormationExecutionRoleArn
+  CodeBuildRoleStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+    - ArtifactBucketStack
+    Properties:
+      TemplateURL: 
+        https://s3.us-west-1.amazonaws.com/aws-cfn-infra-prod-pipeline-artifacts-982723143439-us-west-1-an/257af1815ab11a984691ffdaf21dd8de.template
+      Parameters:
+        ArtifactBucketArn:
+          Fn::GetAtt:
+          - ArtifactBucketStack
+          - Outputs.ArtifactBucketArn
+        ArtifactBucketObjectsArn:
+          Fn::GetAtt:
+          - ArtifactBucketStack
+          - Outputs.ArtifactBucketObjectsArn
+  ValidateProjectStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+    - CodeBuildRoleStack
+    Properties:
+      TemplateURL: 
+        https://s3.us-west-1.amazonaws.com/aws-cfn-infra-prod-pipeline-artifacts-982723143439-us-west-1-an/eac77686db94792d04575a025e853b76.template
+      Parameters:
+        CodeBuildRoleArn:
+          Fn::GetAtt:
+          - CodeBuildRoleStack
+          - Outputs.CodeBuildRoleArn
+  PackageProjectStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+    - CodeBuildRoleStack
+    Properties:
+      TemplateURL: 
+        https://s3.us-west-1.amazonaws.com/aws-cfn-infra-prod-pipeline-artifacts-982723143439-us-west-1-an/a200e4d0fd4e996f01e2bd71baea8b22.template
+      Parameters:
+        CodeBuildRoleArn:
+          Fn::GetAtt:
+          - CodeBuildRoleStack
+          - Outputs.CodeBuildRoleArn
+  CloudFormationExecutionRoleStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: 
+        https://s3.us-west-1.amazonaws.com/aws-cfn-infra-prod-pipeline-artifacts-982723143439-us-west-1-an/bfb3bc21876086adfd3f90741acb3117.template
+  PRValidationProjectStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+    - CodeBuildRoleStack
+    Properties:
+      TemplateURL: 
+        https://s3.us-west-1.amazonaws.com/aws-cfn-infra-prod-pipeline-artifacts-982723143439-us-west-1-an/1db76ce8b08c0f5f2d675149e7546e0f.template
+      Parameters:
+        CodeBuildRoleArn:
+          Fn::GetAtt:
+          - CodeBuildRoleStack
+          - Outputs.CodeBuildRoleArn
+  Pipeline:
+    Type: AWS::CodePipeline::Pipeline
+    DependsOn:
+    - CodePipelineRoleStack
+    - CodeBuildRoleStack
+    - ValidateProjectStack
+    - PackageProjectStack
+    - ArtifactBucketStack
+    - CloudFormationExecutionRoleStack
+    Properties:
+      Name: aws-cfn-infra-prod-deploy-pipeline
+      RoleArn:
+        Fn::GetAtt:
+        - CodePipelineRoleStack
+        - Outputs.CodePipelineRoleArn
+      ArtifactStore:
+        Type: S3
+        Location:
+          Fn::GetAtt:
+          - ArtifactBucketStack
+          - Outputs.ArtifactBucketName
+      Stages:
+      - Name: Source
+        Actions:
+        - Name: Source
+          ActionTypeId:
+            Category: Source
+            Owner: AWS
+            Provider: CodeStarSourceConnection
+            Version: '1'
+          OutputArtifacts:
+          - Name: SourceOutput
+          Configuration:
+            ConnectionArn: 
+              arn:aws:codeconnections:us-west-1:982723143439:connection/2a301bbf-9483-4ada-8bdb-96d96fbc7244
+            FullRepositoryId: 
+              vignesh-aws-devops/aws-cfn-two-tier-multi-environment
+            BranchName: main
+            DetectChanges: true
+          RunOrder: 1
+      - Name: Cfn_Validate
+        Actions:
+        - Name: ValidateTemplates
+          ActionTypeId:
+            Category: Build
+            Owner: AWS
+            Provider: CodeBuild
+            Version: '1'
+          InputArtifacts:
+          - Name: SourceOutput
+          Configuration:
+            ProjectName:
+              Fn::GetAtt:
+              - ValidateProjectStack
+              - Outputs.ValidateProjectName
+          RunOrder: 1
+      - Name: Cfn_Package
+        Actions:
+        - Name: PackageTemplates
+          ActionTypeId:
+            Category: Build
+            Owner: AWS
+            Provider: CodeBuild
+            Version: '1'
+          InputArtifacts:
+          - Name: SourceOutput
+          OutputArtifacts:
+          - Name: PackagedOutput
+          Configuration:
+            ProjectName:
+              Fn::GetAtt:
+              - PackageProjectStack
+              - Outputs.PackageProjectName
+          RunOrder: 1
+      - Name: Cfn_DeployTest
+        Actions:
+        - Name: DeployTestStack
+          ActionTypeId:
+            Category: Deploy
+            Owner: AWS
+            Provider: CloudFormation
+            Version: '1'
+          InputArtifacts:
+          - Name: PackagedOutput
+          Configuration:
+            ActionMode: CREATE_UPDATE
+            RoleArn:
+              Fn::GetAtt:
+              - CloudFormationExecutionRoleStack
+              - Outputs.CloudFormationExecutionRoleArn
+            StackName: aws-cfn-infra-deploy-test
+            TemplatePath: PackagedOutput::packaged_root_main.yaml
+            TemplateConfiguration: PackagedOutput::test-parameters.json
+            Capabilities: CAPABILITY_NAMED_IAM
+          RunOrder: 1
+      - Name: CreateProdChangeSet
+        Actions:
+        - Name: ApproveCreateProdChangeSet
+          ActionTypeId:
+            Category: Approval
+            Owner: AWS
+            Provider: Manual
+            Version: '1'
+          Configuration:
+            CustomData: Approve creation of the Production Change Set
+          RunOrder: 1
+        - Name: ImplementProdChangeSet
+          ActionTypeId:
+            Category: Deploy
+            Owner: AWS
+            Provider: CloudFormation
+            Version: '1'
+          InputArtifacts:
+          - Name: PackagedOutput
+          Configuration:
+            ActionMode: CHANGE_SET_REPLACE
+            RoleArn:
+              Fn::GetAtt:
+              - CloudFormationExecutionRoleStack
+              - Outputs.CloudFormationExecutionRoleArn
+            StackName: aws-cfn-infra-deploy-prod
+            ChangeSetName: aws-cfn-infra-deploy-prod-changeset
+            TemplatePath: PackagedOutput::packaged_root_main.yaml
+            TemplateConfiguration: PackagedOutput::prod-parameters.json
+            Capabilities: CAPABILITY_NAMED_IAM
+          RunOrder: 2
+      - Name: Cfn_DeployProd
+        Actions:
+        - Name: ApproveDeployProd
+          ActionTypeId:
+            Category: Approval
+            Owner: AWS
+            Provider: Manual
+            Version: '1'
+          Configuration:
+            CustomData: Review the Production Change Set and approve deployment 
+              to Production.
+          RunOrder: 1
+        - Name: ExecuteProdChangeSet
+          ActionTypeId:
+            Category: Deploy
+            Owner: AWS
+            Provider: CloudFormation
+            Version: '1'
+          Configuration:
+            ActionMode: CHANGE_SET_EXECUTE
+            StackName: aws-cfn-infra-deploy-prod
+            ChangeSetName: aws-cfn-infra-deploy-prod-changeset
+            RoleArn:
+              Fn::GetAtt:
+              - CloudFormationExecutionRoleStack
+              - Outputs.CloudFormationExecutionRoleArn
+          RunOrder: 2

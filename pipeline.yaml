@@ -1,0 +1,257 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS CloudFormation Infrastructure Production Deployment Pipeline
+
+Resources:
+
+  ArtifactBucketStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: nested_artifact_bucket.yaml
+
+  CodePipelineRoleStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - CloudFormationExecutionRoleStack
+    Properties:
+      TemplateURL: nested_codepipeline_role.yaml
+      Parameters:
+        ArtifactBucketArn:
+          Fn::GetAtt:
+            - ArtifactBucketStack
+            - Outputs.ArtifactBucketArn
+        ArtifactBucketObjectsArn:
+          Fn::GetAtt:
+            - ArtifactBucketStack
+            - Outputs.ArtifactBucketObjectsArn
+        ValidateProjectArn:
+          Fn::GetAtt:
+            - ValidateProjectStack
+            - Outputs.ValidateProjectArn
+        PackageProjectArn:
+          Fn::GetAtt:
+            - PackageProjectStack
+            - Outputs.PackageProjectArn
+        CloudFormationExecutionRoleArn:
+          Fn::GetAtt:
+            - CloudFormationExecutionRoleStack
+            - Outputs.CloudFormationExecutionRoleArn
+
+  CodeBuildRoleStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - ArtifactBucketStack
+    Properties:
+      TemplateURL: nested_codebuild_role.yaml
+      Parameters:
+        ArtifactBucketArn:
+          Fn::GetAtt:
+            - ArtifactBucketStack
+            - Outputs.ArtifactBucketArn
+        ArtifactBucketObjectsArn:
+          Fn::GetAtt:
+            - ArtifactBucketStack
+            - Outputs.ArtifactBucketObjectsArn
+
+  ValidateProjectStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - CodeBuildRoleStack
+    Properties:
+      TemplateURL: nested_codebuild_validate.yaml
+      Parameters:
+        CodeBuildRoleArn:
+          Fn::GetAtt:
+            - CodeBuildRoleStack
+            - Outputs.CodeBuildRoleArn
+    
+  PackageProjectStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - CodeBuildRoleStack
+    Properties:
+      TemplateURL: nested_codebuild_package.yaml
+      Parameters:
+        CodeBuildRoleArn:
+          Fn::GetAtt:
+            - CodeBuildRoleStack
+            - Outputs.CodeBuildRoleArn
+
+  CloudFormationExecutionRoleStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: nested_cloudformation_execution_role.yaml
+  
+  PRValidationProjectStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - CodeBuildRoleStack
+    Properties:
+      TemplateURL: nested_codebuild_pr_validate.yaml
+      Parameters:
+        CodeBuildRoleArn:
+          Fn::GetAtt:
+            - CodeBuildRoleStack
+            - Outputs.CodeBuildRoleArn
+
+  Pipeline:
+    Type: AWS::CodePipeline::Pipeline
+    DependsOn:
+      - CodePipelineRoleStack
+      - CodeBuildRoleStack
+      - ValidateProjectStack
+      - PackageProjectStack
+      - ArtifactBucketStack
+      - CloudFormationExecutionRoleStack
+    Properties:
+      Name: aws-cfn-infra-prod-deploy-pipeline
+      RoleArn:
+        Fn::GetAtt:
+          - CodePipelineRoleStack
+          - Outputs.CodePipelineRoleArn
+      ArtifactStore:
+        Type: S3
+        Location: 
+          Fn::GetAtt:
+            - ArtifactBucketStack
+            - Outputs.ArtifactBucketName
+
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: Source
+              ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Provider: CodeStarSourceConnection
+                Version: "1"
+              OutputArtifacts:
+                - Name: SourceOutput
+              Configuration:
+                ConnectionArn: arn:aws:codeconnections:us-west-1:982723143439:connection/2a301bbf-9483-4ada-8bdb-96d96fbc7244
+                FullRepositoryId: vignesh-aws-devops/aws-cfn-two-tier-multi-environment
+                BranchName: main
+                DetectChanges: true
+              RunOrder: 1
+
+        - Name: Cfn_Validate
+          Actions:
+            - Name: ValidateTemplates
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: "1"
+              InputArtifacts:
+                - Name: SourceOutput
+              Configuration:
+                ProjectName:
+                  Fn::GetAtt:
+                    - ValidateProjectStack
+                    - Outputs.ValidateProjectName
+              RunOrder: 1
+              
+        - Name: Cfn_Package
+          Actions:
+            - Name: PackageTemplates
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: "1"
+              InputArtifacts:
+                - Name: SourceOutput
+              OutputArtifacts:
+                - Name: PackagedOutput
+              Configuration:
+                ProjectName:
+                  Fn::GetAtt:
+                    - PackageProjectStack
+                    - Outputs.PackageProjectName
+              RunOrder: 1 
+
+        - Name: Cfn_DeployTest
+          Actions:
+            - Name: DeployTestStack
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: CloudFormation
+                Version: "1"
+              InputArtifacts:
+                - Name: PackagedOutput
+              Configuration:
+                ActionMode: CREATE_UPDATE
+                RoleArn:
+                  Fn::GetAtt:
+                    - CloudFormationExecutionRoleStack
+                    - Outputs.CloudFormationExecutionRoleArn
+                StackName: aws-cfn-infra-deploy-test
+                TemplatePath: PackagedOutput::packaged_root_main.yaml
+                TemplateConfiguration: PackagedOutput::test-parameters.json
+                Capabilities: CAPABILITY_NAMED_IAM
+              RunOrder: 1    
+
+        - Name: CreateProdChangeSet
+          Actions:
+            - Name: ApproveCreateProdChangeSet
+              ActionTypeId:
+                Category: Approval
+                Owner: AWS
+                Provider: Manual
+                Version: "1"
+              Configuration:
+                CustomData: Approve creation of the Production Change Set
+              RunOrder: 1
+
+            - Name: ImplementProdChangeSet
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: CloudFormation
+                Version: "1"
+              InputArtifacts:
+                - Name: PackagedOutput
+              Configuration:
+                ActionMode: CHANGE_SET_REPLACE
+                RoleArn:
+                  Fn::GetAtt:
+                    - CloudFormationExecutionRoleStack
+                    - Outputs.CloudFormationExecutionRoleArn
+                StackName: aws-cfn-infra-deploy-prod
+                ChangeSetName: aws-cfn-infra-deploy-prod-changeset
+                TemplatePath: PackagedOutput::packaged_root_main.yaml
+                TemplateConfiguration: PackagedOutput::prod-parameters.json
+                Capabilities: CAPABILITY_NAMED_IAM
+              RunOrder: 2
+      
+        - Name: Cfn_DeployProd
+          Actions:
+            - Name: ApproveDeployProd
+              ActionTypeId:
+                Category: Approval
+                Owner: AWS
+                Provider: Manual
+                Version: "1"
+              Configuration:
+                CustomData: Review the Production Change Set and approve deployment to Production.
+              RunOrder: 1
+
+            - Name: ExecuteProdChangeSet
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: CloudFormation
+                Version: "1"
+              Configuration:
+                ActionMode: CHANGE_SET_EXECUTE
+                StackName: aws-cfn-infra-deploy-prod
+                ChangeSetName: aws-cfn-infra-deploy-prod-changeset
+                RoleArn:
+                  Fn::GetAtt:
+                    - CloudFormationExecutionRoleStack
+                    - Outputs.CloudFormationExecutionRoleArn
+              RunOrder: 2         
+
+           
+            
+                

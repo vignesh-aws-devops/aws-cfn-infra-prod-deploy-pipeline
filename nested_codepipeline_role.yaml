@@ -1,0 +1,84 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: CodePipeline Service Role for aws-cfn-infra-prod-deploy-pipeline
+
+Parameters:
+  ArtifactBucketArn:
+    Type: String
+  ArtifactBucketObjectsArn:
+    Type: String
+  ValidateProjectArn:
+    Type: String
+  PackageProjectArn:
+    Type: String
+  CloudFormationExecutionRoleArn:
+    Type: String
+
+
+Resources:
+  CodePipelineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - codepipeline.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: codepipeline-cloudformation-deployment-policy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              # CodeBuild Access
+              - Effect: Allow
+                Action:
+                  - codebuild:StartBuild
+                  - codebuild:BatchGetBuilds
+                Resource: 
+                  - !Ref ValidateProjectArn
+                  - !Ref PackageProjectArn
+              # CloudFormation Deployments
+              - Effect: Allow
+                Action:
+                  - cloudformation:CreateStack
+                  - cloudformation:UpdateStack
+                  - cloudformation:DeleteStack
+                  - cloudformation:CreateChangeSet
+                  - cloudformation:ExecuteChangeSet
+                  - cloudformation:DeleteChangeSet
+                  - cloudformation:DescribeStacks
+                  - cloudformation:DescribeStackEvents
+                  - cloudformation:DescribeChangeSet
+                  - cloudformation:GetTemplate
+                  - cloudformation:GetTemplateSummary
+                Resource: arn:aws:cloudformation:us-west-1:982723143439:stack/*
+              # Artifact Bucket - ListBucket
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource: !Ref ArtifactBucketArn
+              # Artifact Bucket - Objects
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:PutObject
+                Resource: !Ref ArtifactBucketObjectsArn
+              # GitHub CodeStar Connection
+              - Effect: Allow
+                Action:
+                  - codestar-connections:UseConnection
+                Resource: arn:aws:codeconnections:us-west-1:982723143439:connection/2a301bbf-9483-4ada-8bdb-96d96fbc7244
+              # Pass CloudFormation Execution Role
+              - Effect: Allow
+                Action:
+                  - iam:PassRole
+                Resource: !Ref CloudFormationExecutionRoleArn
+             
+Outputs:
+  CodePipelineRoleArn:
+    Description: CodePipeline Service Role ARN
+    Value: !GetAtt CodePipelineRole.Arn
