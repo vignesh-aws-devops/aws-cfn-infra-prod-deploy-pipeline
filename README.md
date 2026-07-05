@@ -76,6 +76,12 @@ This prevents invalid CloudFormation templates from being merged into the main b
 
 ## Pipeline Architecture
 
+![Pipeline Architecture](aws-cfn-infra-prod-deploy-pipeline.png)
+
+![Pipeline Image](aws-cfn-infra-prod-deploy-pipeline-image.png)
+
+## Pipeline Architecture
+
 ```
 GitHub Repository
         │
